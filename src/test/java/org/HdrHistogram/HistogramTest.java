@@ -8,16 +8,13 @@
 
 package org.HdrHistogram;
 
-import org.junit.*;
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.io.*;
-import java.util.Random;
 import java.util.zip.Deflater;
 
-import java.io.ByteArrayOutputStream;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
 /**
  * JUnit test for {@link Histogram}
@@ -257,19 +254,19 @@ public class HistogramTest {
         *          subBucketSize
         */
         long largestValueWithSingleUnitResolution = 2 * (long) Math.pow(10, numberOfSignificantValueDigits);
-        int subBucketCountMagnitude = (int) Math.ceil(Math.log(largestValueWithSingleUnitResolution)/Math.log(2));
+        int subBucketCountMagnitude = (int) Math.ceil(Math.log(largestValueWithSingleUnitResolution) / Math.log(2));
         int subBucketSize = (int) Math.pow(2, (subBucketCountMagnitude));
 
         long expectedSize = 512 +
                 ((8 *
-                 ((long)(
-                        Math.ceil(
-                         Math.log(highestTrackableValue / subBucketSize)
-                                 / Math.log(2)
-                        )
-                       + 2)) *
-                    (1 << (64 - Long.numberOfLeadingZeros(2 * (long) Math.pow(10, numberOfSignificantValueDigits))))
-                 ) / 2);
+                        ((long) (
+                                Math.ceil(
+                                        Math.log(highestTrackableValue / subBucketSize)
+                                                / Math.log(2)
+                                )
+                                        + 2)) *
+                        (1 << (64 - Long.numberOfLeadingZeros(2 * (long) Math.pow(10, numberOfSignificantValueDigits))))
+                ) / 2);
         Assert.assertEquals(expectedSize, histogram.getEstimatedFootprintInBytes());
         verifyMaxValue(histogram);
     }
@@ -309,18 +306,18 @@ public class HistogramTest {
         long[] lengths = {1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000};
 
 
-        for (long length: lengths) {
+        for (long length : lengths) {
             histogram.reset();
             for (long value = 1; value <= length; value++) {
                 histogram.recordValue(value);
             }
-            
+
             for (long value = 1; value <= length; value++) {
-                Double calculatedPercentile = 100.0 * ((double) value)/length;
+                Double calculatedPercentile = 100.0 * ((double) value) / length;
                 long lookupValue = histogram.getValueAtPercentile(calculatedPercentile);
                 Assert.assertTrue("length:" + length + " value: " + value + " calculatedPercentile:" + calculatedPercentile +
-                        " getValueAtPercentile(" + calculatedPercentile + ") = " + lookupValue +
-                        " [should be " + value + "]",
+                                " getValueAtPercentile(" + calculatedPercentile + ") = " + lookupValue +
+                                " [should be " + value + "]",
                         histogram.valuesAreEquivalent(value, lookupValue));
             }
         }
@@ -332,7 +329,7 @@ public class HistogramTest {
         long[] lengths = {1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000};
 
 
-        for (long length: lengths) {
+        for (long length : lengths) {
             histogram.reset();
             for (long value = 1; value <= length; value++) {
                 histogram.recordValue(value);
@@ -354,23 +351,59 @@ public class HistogramTest {
     @Test
     public void testRecordValueWithExpectedInterval() throws Exception {
         Histogram histogram = new Histogram(highestTrackableValue, numberOfSignificantValueDigits);
-        histogram.recordValueWithExpectedInterval(testValueLevel, testValueLevel/4);
+        histogram.recordValueWithExpectedInterval(testValueLevel, testValueLevel / 4);
         Histogram rawHistogram = new Histogram(highestTrackableValue, numberOfSignificantValueDigits);
         rawHistogram.recordValue(testValueLevel);
         // The data will include corrected samples:
-        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 1 )/4));
-        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 2 )/4));
-        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 3 )/4));
-        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 4 )/4));
+        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 1) / 4));
+        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 2) / 4));
+        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 3) / 4));
+        Assert.assertEquals(1L, histogram.getCountAtValue((testValueLevel * 4) / 4));
         Assert.assertEquals(4L, histogram.getTotalCount());
         // But the raw data will not:
-        Assert.assertEquals(0L, rawHistogram.getCountAtValue((testValueLevel * 1 )/4));
-        Assert.assertEquals(0L, rawHistogram.getCountAtValue((testValueLevel * 2 )/4));
-        Assert.assertEquals(0L, rawHistogram.getCountAtValue((testValueLevel * 3 )/4));
-        Assert.assertEquals(1L, rawHistogram.getCountAtValue((testValueLevel * 4 )/4));
+        Assert.assertEquals(0L, rawHistogram.getCountAtValue((testValueLevel * 1) / 4));
+        Assert.assertEquals(0L, rawHistogram.getCountAtValue((testValueLevel * 2) / 4));
+        Assert.assertEquals(0L, rawHistogram.getCountAtValue((testValueLevel * 3) / 4));
+        Assert.assertEquals(1L, rawHistogram.getCountAtValue((testValueLevel * 4) / 4));
         Assert.assertEquals(1L, rawHistogram.getTotalCount());
 
         verifyMaxValue(histogram);
+    }
+
+    @Test
+    public void testCompareRecordValueWithExpectedIntervalVsCoordinatedOmissionFreeLoadGenerator() throws Exception {
+        Histogram histogram = new Histogram(highestTrackableValue, numberOfSignificantValueDigits);
+        final long expectedInterval = testValueLevel;
+        final long normalServiceTime = testValueLevel;
+        final long veryLongServiceTime = testValueLevel * 4;
+        //simulate a perfect single outlier without CO correction
+        histogram.recordValue(veryLongServiceTime);
+        for (int i = 0; i < 100; i++) {
+            histogram.recordValue(testValueLevel);
+        }
+        //it is not elegant but that's it :)
+        System.out.println("Service-Time with CO");
+        histogram.outputPercentileDistribution(System.out, 1d);
+        //ok everything seems fine, so let's try with a cool CO free response time recorder
+        Histogram responseTimeCoFreeHistogram = new Histogram(highestTrackableValue, numberOfSignificantValueDigits);
+        responseTimeCoFreeHistogram.recordValue(veryLongServiceTime);
+        //after this unfortunate event all the others samples will be charged by the wait time into their service time ie it's response time!
+        long waitTime = veryLongServiceTime - expectedInterval;
+        for (int i = 0; i < 100; i++) {
+            final long serviceTime = normalServiceTime;
+            //that's take into account the real statistical "weight" of having missed several samples
+            final long responseTime = waitTime + serviceTime;
+            responseTimeCoFreeHistogram.recordValue(responseTime);
+        }
+        System.out.println("Response-Time without CO");
+        responseTimeCoFreeHistogram.outputPercentileDistribution(System.out, 1d);
+        Histogram serviceTimeCoFree = new Histogram(highestTrackableValue, numberOfSignificantValueDigits);
+        serviceTimeCoFree.recordValueWithExpectedInterval(veryLongServiceTime, expectedInterval);
+        for (int i = 0; i < 100; i++) {
+            serviceTimeCoFree.recordValueWithExpectedInterval(testValueLevel, expectedInterval);
+        }
+        System.out.println("Service-Time without CO");
+        serviceTimeCoFree.outputPercentileDistribution(System.out, 1d);
     }
 
     @Test
@@ -689,7 +722,7 @@ public class HistogramTest {
             Deflater compresser = new Deflater();
             compresser.setInput(bos.toByteArray());
             compresser.finish();
-            byte [] compressedOutput = new byte[1024*1024];
+            byte[] compressedOutput = new byte[1024 * 1024];
             int compressedDataLength = compresser.deflate(compressedOutput);
             System.out.println("Serialized form of " + histogram.getClass() + " with trackableValueRangeSize = " +
                     histogram.getHighestTrackableValue() + "\n and a numberOfSignificantValueDigits = " +
@@ -702,7 +735,7 @@ public class HistogramTest {
         } finally {
             if (out != null) out.close();
             bos.close();
-            if (in !=null) in.close();
+            if (in != null) in.close();
             if (bis != null) bis.close();
         }
         Assert.assertNotNull(newHistogram);
@@ -779,7 +812,7 @@ public class HistogramTest {
         // This should overflow a ShortHistogram:
         histogram.recordValueWithExpectedInterval(histogram.getHighestTrackableValue() - 1, 500);
     }
-    
+
     @Test
     public void testCopy() throws Exception {
         Histogram histogram = new Histogram(highestTrackableValue, numberOfSignificantValueDigits);
@@ -797,7 +830,7 @@ public class HistogramTest {
 
         System.out.println("Testing copy of IntHistogram:");
         assertEqual(intCountsHistogram, intCountsHistogram.copy());
-  
+
         ShortCountsHistogram shortCountsHistogram = new ShortCountsHistogram(highestTrackableValue, numberOfSignificantValueDigits);
         shortCountsHistogram.recordValue(testValueLevel);
         shortCountsHistogram.recordValue(testValueLevel * 10);
@@ -805,7 +838,7 @@ public class HistogramTest {
 
         System.out.println("Testing copy of ShortHistogram:");
         assertEqual(shortCountsHistogram, shortCountsHistogram.copy());
-  
+
         AtomicHistogram atomicHistogram = new AtomicHistogram(highestTrackableValue, numberOfSignificantValueDigits);
         atomicHistogram.recordValue(testValueLevel);
         atomicHistogram.recordValue(testValueLevel * 10);
@@ -821,7 +854,7 @@ public class HistogramTest {
 
         System.out.println("Testing copy of ConcurrentHistogram:");
         assertEqual(concurrentHistogram, concurrentHistogram.copy());
-  
+
         SynchronizedHistogram syncHistogram = new SynchronizedHistogram(highestTrackableValue, numberOfSignificantValueDigits);
         syncHistogram.recordValue(testValueLevel);
         syncHistogram.recordValue(testValueLevel * 10);
